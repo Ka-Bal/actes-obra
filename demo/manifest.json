@@ -1,0 +1,22 @@
+{
+ "files": [
+  {
+   "path": "E_26_999_PR/02_Doc 2 Plànols/PDF/E_26_999_PR_Planta general_v1.pdf",
+   "src": "E_26_999_PR_Planta general_v1.pdf",
+   "size": 2800,
+   "mtime": 1795165200000
+  },
+  {
+   "path": "E_26_999_PR/02_Doc 2 Plànols/PDF/E_26_999_PR_Fonamentació_v1.pdf",
+   "src": "E_26_999_PR_Fonamentacio_v1.pdf",
+   "size": 2363,
+   "mtime": 1795165200000
+  },
+  {
+   "path": "E_26_999_SS/01_Pla de Seguretat i Salut/Pla de seguretat i salut.pdf",
+   "src": "Pla de seguretat i salut.pdf",
+   "size": 3155,
+   "mtime": 1795165200000
+  }
+ ]
+}

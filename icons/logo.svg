@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 190 40" role="img" aria-label="AVENTEC">
+  <defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#1EAFC3"/><stop offset=".45" stop-color="#2B6CB0"/><stop offset=".75" stop-color="#3E3E94"/><stop offset="1" stop-color="#512381"/></linearGradient></defs>
+  <rect x="0" y="0" width="40" height="40" rx="9" fill="url(#g)"/>
+  <path d="M20 8 L31 32 H26.2 L23.9 26.6 H16.1 L13.8 32 H9 Z M17.6 22.8 H22.4 L20 17 Z" fill="#fff"/>
+  <text x="50" y="28" font-family="Helvetica, Arial, sans-serif" font-size="21" font-weight="700" letter-spacing="1.5" fill="currentColor" style="fill:#fff">AVENTEC</text>
+</svg>

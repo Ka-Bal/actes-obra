@@ -1,0 +1,31 @@
+{
+  "name": "AVENTEC · Seguiment d'obra (portàtil)",
+  "short_name": "Obra portàtil",
+  "description": "Visites d'obra sense servidor: plànols, fotos, anotacions, notes i àudio a la tauleta; la visita s'envia en un ZIP per correu o WhatsApp.",
+  "lang": "ca",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#262A5E",
+  "theme_color": "#262A5E",
+  "icons": [
+    {
+      "src": "icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    },
+    {
+      "src": "icons/icon-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ],
+  "id": "aventec-seguiment-obra-portatil"
+}
