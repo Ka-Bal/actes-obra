@@ -1,6 +1,6 @@
 // Service worker generat automàticament (tools/build-sw.js). No l'editis a mà.
 // Guarda l'aplicació a la tauleta perquè s'obri i funcioni sense connexió.
-const VERSION = 'b3a54fe79e5a';
+const VERSION = 'bb68f668bdc3';
 const CACHE = 'aventec-app-' + VERSION;
 const RUNTIME = 'aventec-runtime';
 const FILES = [
@@ -28,6 +28,8 @@ const FILES = [
  "./js/exporter.js",
  "./js/graph.js",
  "./js/ipad.js",
+ "./js/manual-save.js",
+ "./js/onedrive-setup.js",
  "./js/onedrive.js",
  "./js/pdfsrc.js",
  "./js/screen-obra.js",

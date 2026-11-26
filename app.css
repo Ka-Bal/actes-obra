@@ -265,3 +265,38 @@ details.adv summary { cursor: pointer; font-weight: 600; color: var(--titol); }
 details.adv .form { margin-top: 10px; }
 .banner > .btn { flex: none; align-self: center; }
 .interim { max-width: 160px; }
+
+/* ---------- assistent de OneDrive i ajuda de dictat */
+.wizard { display: flex; flex-direction: column; gap: 14px; }
+.wizard label { display: flex; flex-direction: column; gap: 6px; }
+.wiz-steps { display: flex; gap: 6px; list-style: none; padding: 0; margin: 0 0 4px; flex-wrap: wrap; }
+.wiz-steps li { display: flex; align-items: center; gap: 6px; padding: 6px 12px 6px 6px; border-radius: 999px; background: #eef1f6; color: var(--muted); font-weight: 600; font-size: 14px; }
+.wiz-steps li span { width: 24px; height: 24px; border-radius: 50%; background: #fff; display: flex; align-items: center; justify-content: center; font-size: 13px; }
+.wiz-steps li.on { background: var(--blau); color: #fff; }
+.wiz-steps li.on span { color: var(--blau); }
+.wiz-steps li.done { background: var(--ok-bg); color: var(--ok); }
+.wiz-card { border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; background: #f8fafc; display: flex; flex-direction: column; gap: 8px; }
+.wiz-card.soft { flex-direction: row; gap: 10px; background: #eaf3fb; border-color: #c8def3; }
+.wiz-card.bad { background: var(--err-bg); border-color: #f2c4c6; }
+.wiz-card.good { background: var(--ok-bg); border-color: #b5e3cb; }
+.wiz-copy { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.wiz-copy code { flex: 1; min-width: 200px; background: #fff; border: 1px solid var(--line); border-radius: 8px; padding: 10px; font-size: 15px; word-break: break-all; -webkit-user-select: all; user-select: all; }
+.input.mono { font-family: ui-monospace, Menlo, monospace; letter-spacing: .02em; }
+.wiz-actions { display: flex; justify-content: flex-end; gap: 10px; flex-wrap: wrap; margin-top: 6px; }
+.wiz-list { margin: 0; padding-left: 22px; display: flex; flex-direction: column; gap: 6px; }
+.wiz-ok { display: flex; gap: 12px; align-items: center; color: #0b5e3d; }
+.wiz-ok .ico { width: 30px; height: 30px; }
+.wiz-ok.big { background: var(--ok-bg); border-radius: 12px; padding: 14px; }
+.wiz-crumbs { font-size: 14px; color: var(--muted); display: flex; flex-wrap: wrap; align-items: center; gap: 2px; }
+button.link { border: 0; background: none; color: var(--blau); padding: 4px 2px; font-weight: 600; }
+.wiz-browser { display: flex; flex-direction: column; gap: 10px; }
+.wiz-browser .list { max-height: 45vh; overflow: auto; }
+.dict-help { margin: 10px 0; padding: 12px 14px; border-radius: 12px; background: #eaf3fb; border: 1px solid #c8def3; color: #183b63; display: flex; flex-direction: column; gap: 10px; }
+.dict-help-main { display: flex; gap: 12px; align-items: flex-start; }
+.dict-help-main .ico { width: 30px; height: 30px; color: var(--blau); }
+.dict-more p { margin: 4px 0; font-size: 14px; }
+.manual-files { display: flex; flex-direction: column; gap: 10px; }
+.manual-step { border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+.manual-step .num { width: 32px; height: 32px; border-radius: 50%; background: var(--blau); color: #fff; display: flex; align-items: center; justify-content: center; font-weight: 700; flex: none; }
+.manual-step > div { flex: 1; min-width: 220px; }
+.manual-step.done .num { background: var(--ok); }
