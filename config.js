@@ -2,7 +2,7 @@
 // Només cal editar aquest fitxer un cop, en publicar l'app. Vegeu README.md, apartat «Connexió amb OneDrive».
 window.AVENTEC_CONFIG = {
   // ID d'aplicació (client) de l'app registrada a Microsoft Entra ID (portal Azure → Registres d'aplicacions)
-  clientId: '',
+  clientId: 'fef61127-99ee-4502-a62a-c12947a0b5e4',
 
   // 'organizations' = comptes de Microsoft 365 d'empresa; o l'ID del tenant d'AVENTEC; 'common' admet també comptes personals
   tenant: 'organizations',
