@@ -36,8 +36,12 @@ class Annotator {
     this.undo = []; this.redo = []; this.dirty = false;
     this.preview = null; this.hires = null; this.renderTask = null; this.hiresTimer = null;
     this.build();
-    // Per defecte: a Android (tauletes sovint sense llapis) el dit dibuixa; a l'iPad, el dit desplaça.
-    kv.get('fingerDraw', null).then((v) => { this.fingerDraw = v === null ? /Android/i.test(navigator.userAgent) : !!v; this.syncToolbar(); });
+    // Per defecte el dit DIBUIXA (amb dos dits es mou i s'amplia). Si es detecta un llapis, el dit passa a moure.
+    this.fingerDraw = true; this.syncToolbar();
+    kv.get('fingerDraw2', null).then((v) => { if (v !== null) { this.fingerDraw = !!v; this.syncToolbar(); } });
+    if (this.editable) kv.get('annHint', false).then((seen) => {
+      if (!seen) { toast('Dibuixa amb el dit o amb el llapis. Per moure o ampliar, fes servir dos dits.'); kv.set('annHint', true); }
+    });
     this.loadPage(this.pageIdx);
   }
 
@@ -70,7 +74,8 @@ class Annotator {
       this.toolBtns = TOOLS.map(([id, ic, label]) => h('button.tool', { title: label, 'aria-label': label, onclick: () => { this.tool = id; this.syncToolbar(); } }, icon(ic), h('span', {}, label)));
       this.colorBtns = COLORS.map((c) => h('button.swatch', { style: { background: c }, 'aria-label': 'Color', onclick: () => { this.color = c; this.syncToolbar(); } }));
       this.widthBtns = WIDTHS.map((w, i) => h('button.wbtn', { 'aria-label': 'Gruix', onclick: () => { this.widthIdx = i; this.syncToolbar(); } }, h('i', { style: { height: Math.max(2, w) + 'px' } })));
-      this.fingerBtn = h('button.tool', { title: 'Dibuixar amb el dit', onclick: async () => { this.fingerDraw = !this.fingerDraw; await kv.set('fingerDraw', this.fingerDraw); this.syncToolbar(); toast(this.fingerDraw ? 'Ara el dit també dibuixa (dos dits per moure)' : 'El dit desplaça; dibuixa amb el llapis'); } }, icon('finger'), h('span', {}, 'Dit'));
+      this.fingerLabel = h('span', {}, 'Dit');
+      this.fingerBtn = h('button.tool', { title: 'Què fa el dit: dibuixar o moure', onclick: async () => { this.fingerDraw = !this.fingerDraw; await kv.set('fingerDraw2', this.fingerDraw); this.syncToolbar(); toast(this.fingerDraw ? 'El dit dibuixa (dos dits per moure i ampliar)' : 'El dit mou la imatge (dibuixa amb el llapis)'); } }, icon('finger'), this.fingerLabel);
       this.undoBtn = h('button.tool', { onclick: () => this.doUndo(), title: 'Desfés' }, icon('undo'), h('span', {}, 'Desfés'));
       this.redoBtn = h('button.tool', { onclick: () => this.doRedo(), title: 'Refés' }, icon('redo'), h('span', {}, 'Refés'));
       tools = h('div.ann-tools', {},
@@ -114,6 +119,7 @@ class Annotator {
     COLORS.forEach((c, i) => this.colorBtns[i].classList.toggle('on', this.color === c));
     this.widthBtns.forEach((b, i) => b.classList.toggle('on', this.widthIdx === i));
     this.fingerBtn.classList.toggle('on', !!this.fingerDraw);
+    this.fingerLabel.textContent = this.fingerDraw ? 'Dit: dibuixa' : 'Dit: mou';
     this.undoBtn.disabled = !this.undo.length; this.redoBtn.disabled = !this.redo.length;
     this.stage.style.cursor = this.tool === 'hand' ? 'grab' : this.tool === 'erase' ? 'cell' : this.tool === 'tx' ? 'text' : 'crosshair';
   }
@@ -304,7 +310,7 @@ class Annotator {
       this.penDown = true;
       if (this.fingerDraw && !this.penNoticed) {
         // S'ha detectat un llapis: el dit passa a desplaçar (rebuig del palmell)
-        this.penNoticed = true; this.fingerDraw = false; kv.set('fingerDraw', false); this.syncToolbar();
+        this.penNoticed = true; this.fingerDraw = false; kv.set('fingerDraw2', false); this.syncToolbar();
         toast('Llapis detectat: el llapis dibuixa i el dit desplaça');
       }
       if (this.mode === 'pan' || this.mode === 'pinch') { this.pointers.clear(); this.mode = null; }

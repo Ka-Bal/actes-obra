@@ -1,20 +1,32 @@
-// Dictat amb el reconeixement de veu del navegador, adaptat a l'iPad.
+// Dictat del full d'anotacions
 //
-// Problemes de Safari a l'iPad que aquest mòdul evita:
-//  - El mode continu (continuous = true) no funciona bé: els resultats no es marquen mai com a definitius
-//    (isFinal = false) i el text no arribava mai al full. → Sessions curtes (una frase) que es reprenen
-//    soles, i el text s'escriu al full a mesura que es reconeix, sense esperar «isFinal».
-//  - start() s'ha de cridar directament des del toc (sense esperes abans). → L'idioma es llegeix abans.
-//  - Safari de vegades no avisa quan s'acaba (onend). → El botó canvia d'estat a l'instant i, en aturar,
-//    es força l'aturada encara que Safari no respongui.
-//  - En alguns iPad, el dictat de Safari no està disponible dins l'app instal·lada. → Missatge clar i
-//    alternativa: el micròfon del teclat de l'iPad (sempre funciona).
+// IMPORTANT (iPad): Apple no permet el reconeixement de veu de Safari (Web Speech API) dins de les web apps
+// instal·lades a la pantalla d'inici: el micròfon s'encén i surt «Escoltant…», però no arriba mai cap text.
+// Per això, a l'app instal·lada el botó «Dicta» fa servir el DICTAT DEL TECLAT de l'iPad, que funciona sempre
+// (també sense connexió als iPad recents i en català): obre el teclat al final del full i indica on tocar.
+//
+// El reconeixement de Safari només s'utilitza quan l'app s'obre en una pestanya del navegador (o a
+// l'ordinador); si en 8 segons no arriba cap text, s'atura sol i es passa al dictat del teclat.
 import { h, icon, toast } from './ui.js';
 import { kv } from './db.js';
 
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+const isIOS = () => /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+const isStandalone = () => window.matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+
 let lang = 'ca-ES';
+let mode = 'auto'; // auto | keyboard | safari
 kv.get('dictLang', 'ca-ES').then((v) => { lang = v || 'ca-ES'; });
+kv.get('dictMode', 'auto').then((v) => { mode = v || 'auto'; });
+
+export function setDictMode(v) { mode = v || 'auto'; }
+
+/** Quin sistema de dictat es farà servir en aquest dispositiu */
+export function dictationEngine() {
+  if (mode === 'keyboard' || !SR) return 'keyboard';
+  if (mode === 'safari') return 'safari';
+  return isIOS() && isStandalone() ? 'keyboard' : 'safari';
+}
 
 /** Text d'una sessió a partir dels resultats (Safari pot repetir el text acumulat en cada resultat). */
 export function sessionText(results) {
@@ -23,96 +35,116 @@ export function sessionText(results) {
   if (parts.length > 1 && parts.every((p, i) => i === 0 || p.toLowerCase().startsWith(parts[i - 1].toLowerCase()))) return parts[parts.length - 1];
   return parts.join(' ');
 }
-
 const capitalize = (t) => t.charAt(0).toUpperCase() + t.slice(1);
 
-/**
- * Botó «Dicta» lligat a un textarea. onChange() es crida quan el text canvia (per desar).
- */
-export function dictationButton(ta, onChange) {
-  if (!SR) return null;
-  let active = false;      // l'usuari vol dictar
-  let rec = null;          // sessió en curs
-  let base = '';           // text del full abans de la sessió en curs
-  let started = false;     // Safari ha confirmat l'inici
-  let watchdog = null, maxTimer = null;
+// ------------------------------------------------------------- dictat amb el teclat de l'iPad
+function keyboardHelp(ta, anchor) {
+  document.querySelectorAll('.dict-help').forEach((x) => x.remove());
+  const more = h('div.dict-more.hidden', {},
+    h('p', {}, h('b', {}, 'No veus el micròfon 🎤 al teclat?'), ' A l\'iPad: Configuració › General › Teclat › activa «Dictat». Torna a l\'app i ja hi serà.'),
+    h('p', {}, h('b', {}, 'Amb teclat físic (Magic Keyboard): '), 'prem dues vegades la tecla 🌐 (o Ctrl) per començar a dictar.'),
+    h('p', {}, 'Per escriure en català, tria el teclat català (tecla 🌐) abans de dictar.'));
+  const box = h('div.dict-help', { role: 'status' },
+    h('div.dict-help-main', {}, icon('mic'),
+      h('div', {}, h('b', {}, 'Toca el micròfon 🎤 del teclat i parla.'), h('br'),
+        h('span', {}, 'És a baix, al costat de la barra d\'espai. Torna\'l a tocar per acabar. El text es desa sol.'))),
+    h('div.row', {},
+      h('button.btn.small', { type: 'button', onclick: () => more.classList.toggle('hidden') }, 'No el veig'),
+      h('button.btn.small', { type: 'button', onclick: () => box.remove() }, 'D\'acord')),
+    more);
+  anchor.after(box);
+  const close = () => { box.remove(); ta.removeEventListener('blur', onBlur); };
+  const onBlur = () => setTimeout(() => { if (!box.matches(':hover')) close(); }, 4000);
+  ta.addEventListener('blur', onBlur);
+  setTimeout(() => { if (box.isConnected && more.classList.contains('hidden')) close(); }, 20000);
+}
 
+function startKeyboard(ta, anchor) {
+  // El focus s'ha de donar dins del mateix toc perquè l'iPad obri el teclat
+  ta.focus();
+  const end = ta.value.length;
+  try { ta.setSelectionRange(end, end); } catch { /* */ }
+  if (ta.value && !/\s$/.test(ta.value)) { /* el dictat del teclat ja posa l'espai */ }
+  keyboardHelp(ta, anchor);
+  setTimeout(() => ta.scrollIntoView({ block: 'center', behavior: 'smooth' }), 350);
+}
+
+// ------------------------------------------------------------- botó
+export function dictationButton(ta, onChange) {
+  let active = false, rec = null, base = '', started = false, gotResult = false;
+  let watchdog = null, noResult = null, maxTimer = null;
   const label = h('span', {}, 'Dicta');
   const live = h('span.interim', { 'aria-live': 'polite' });
-  const btn = h('button.btn.small.dict', { type: 'button', onclick: () => (active ? stop() : start()) }, icon('mic'), label);
+  const wrap = h('span.dict-wrap');
+  const btn = h('button.btn.small.dict', { type: 'button', onclick: () => {
+    if (active) return stop();
+    if (dictationEngine() === 'keyboard') return startKeyboard(ta, ta);
+    start();
+  } }, icon('mic'), label);
+  wrap.append(btn, live);
 
-  const paint = () => {
-    btn.classList.toggle('rec', active);
-    label.textContent = active ? 'Atura' : 'Dicta';
-    if (!active) live.textContent = '';
-  };
+  const paint = () => { btn.classList.toggle('rec', active); label.textContent = active ? 'Atura' : 'Dicta'; if (!active) live.textContent = ''; };
+
+  function fallbackToKeyboard(msg) {
+    stop(true);
+    kv.set('dictMode', 'keyboard'); mode = 'keyboard';
+    toast(msg, 'error');
+    startKeyboard(ta, ta);
+  }
 
   function begin() {
     base = ta.value;
-    const r = new SR();               // instància nova cada vegada (Safari s'encalla si es reutilitza)
+    const r = new SR();
     r.lang = lang; r.continuous = false; r.interimResults = true; r.maxAlternatives = 1;
-    r.onstart = () => { started = true; clearTimeout(watchdog); live.textContent = 'Escoltant…'; };
+    r.onstart = () => {
+      started = true; clearTimeout(watchdog); live.textContent = 'Escoltant…';
+      clearTimeout(noResult);
+      if (!gotResult) noResult = setTimeout(() => { if (active && !gotResult) fallbackToKeyboard('El reconeixement de veu del navegador no respon. Fes servir el micròfon del teclat.'); }, 8000);
+    };
     r.onresult = (e) => {
       if (rec !== r) return;
       let t = sessionText(e.results);
       if (!t) return;
+      gotResult = true; clearTimeout(noResult);
       const sep = !base || /\s$/.test(base) ? '' : ' ';
       if (!base.trim() || /[.!?:\n]\s*$/.test(base)) t = capitalize(t);
       ta.value = base + sep + t;
-      live.textContent = 'Escoltant…';
       onChange && onChange();
     };
     r.onerror = (e) => {
       if (rec !== r) return;
-      if (e.error === 'no-speech' || e.error === 'aborted') return; // es reprèn a onend
-      active = false; paint();
-      if (e.error === 'not-allowed' || e.error === 'service-not-allowed') {
-        kv.set('dictUnavailable', true);
-        toast('El dictat de Safari no està disponible en aquesta app. Fes servir el micròfon del teclat de l\'iPad (tecla 🎤).', 'error');
-      } else toast('El dictat s\'ha aturat (' + e.error + '). Pots fer servir el micròfon del teclat.', 'error');
+      if (e.error === 'no-speech' || e.error === 'aborted') return;
+      fallbackToKeyboard('El dictat del navegador no està disponible (' + e.error + '). Fes servir el micròfon del teclat.');
     };
     r.onend = () => {
       if (rec !== r) return;
       rec = null;
       if (ta.value !== base) { base = ta.value; onChange && onChange(); }
-      if (active) setTimeout(() => { if (active && !rec) begin(); }, 150); // nova frase
+      if (active) setTimeout(() => { if (active && !rec) begin(); }, 150);
       else paint();
     };
     rec = r;
-    try { r.start(); } catch (err) {
-      rec = null; active = false; paint();
-      toast('No s\'ha pogut iniciar el dictat: ' + err.message + '. Fes servir el micròfon del teclat.', 'error');
-    }
+    try { r.start(); } catch (err) { rec = null; fallbackToKeyboard('No s\'ha pogut iniciar el dictat del navegador. Fes servir el micròfon del teclat.'); }
   }
 
   function start() {
-    active = true; started = false; paint();          // el botó canvia a l'instant
-    begin();                                         // dins del toc: requisit de Safari
+    active = true; started = false; gotResult = false; paint();
+    begin();
     clearTimeout(watchdog);
-    watchdog = setTimeout(() => {                    // Safari no ha arrencat
-      if (active && !started) {
-        stop(true);
-        toast('El dictat no respon. Fes servir el micròfon del teclat de l\'iPad (tecla 🎤).', 'error');
-      }
-    }, 5000);
+    watchdog = setTimeout(() => { if (active && !started) fallbackToKeyboard('El dictat del navegador no arrenca. Fes servir el micròfon del teclat.'); }, 5000);
     clearTimeout(maxTimer);
     maxTimer = setTimeout(() => { if (active) stop(); }, 5 * 60 * 1000);
   }
 
   function stop(silent = false) {
     active = false; paint();
-    clearTimeout(watchdog); clearTimeout(maxTimer);
+    clearTimeout(watchdog); clearTimeout(noResult); clearTimeout(maxTimer);
     const r = rec; rec = null;
-    if (r) {
-      try { r.stop(); } catch { /* */ }
-      setTimeout(() => { try { r.abort(); } catch { /* */ } }, 800); // Safari de vegades no s'atura amb stop()
-    }
+    if (r) { try { r.stop(); } catch { /* */ } setTimeout(() => { try { r.abort(); } catch { /* */ } }, 800); }
     if (ta.value !== base) onChange && onChange();
     if (!silent) live.textContent = '';
   }
 
-  // Si l'usuari surt de la pantalla o l'app passa a segon pla, s'atura
   document.addEventListener('visibilitychange', () => { if (document.hidden && active) stop(); });
-
-  return h('span.dict-wrap', {}, btn, live);
+  return wrap;
 }

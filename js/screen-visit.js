@@ -6,6 +6,7 @@ import * as store from './store.js';
 import { buildVisitZip, estimateSize, zipName, canShareFile, shareFiles, downloadBlob } from './zipper.js';
 import { openAnnotator } from './annotator.js';
 import { dictationButton } from './dictation.js';
+import { manualSave, preparePhotoFiles, shareNow } from './manual-save.js';
 import { isConfigured, cfg } from './auth.js';
 import { kick as odKick, odState, visitFolderName } from './onedrive.js';
 import { openPdf } from './pdfsrc.js';
@@ -26,7 +27,7 @@ export async function renderVisit(view, id) {
   if (!obra) throw new Error('Obra no trobada');
 
   const more = h('button.icon-btn', { 'aria-label': 'Més opcions', onclick: () => visitMenu(obra, id) }, icon('more'));
-  const send = isConfigured() ? null : h('button.btn.small.send-top', { onclick: () => sendVisit(obra, id, refresh) }, icon('upload'), h('span', {}, 'Envia'));
+  const send = isConfigured() ? null : h('button.btn.small.send-top', { onclick: () => manualSave(obra, id, refresh) }, icon('upload'), h('span', {}, 'Desa a OneDrive'));
   view.appendChild(topbar({ title: `Visita ${v.num} · ${fmtDate(v.date)}`, sub: obra.titol === obra.ref ? obra.ref : `${obra.ref} · ${obra.titol}`, back: '#/obra/' + encodeURIComponent(obra.id), actions: [send, more].filter(Boolean) }));
 
   // Entrades de fitxer (càmera i galeria)
@@ -139,15 +140,19 @@ export async function renderVisit(view, id) {
           'Fotos → ', h('b', {}, `${obra.remote?.name || obra.ref}/${F.fotos}/${folder}`), ' · Full, plànols anotats i àudios → ', h('b', {}, `${F.documents}/${folder}`))),
         h('div.row', {},
           v.dirty ? h('button.btn.primary', { onclick: () => { odKick(0); toast('Pujant a OneDrive…'); } }, icon('upload'), 'Puja ara') : null,
+          h('button.btn', { onclick: () => manualSave(obra, id, refresh) }, icon('folder'), 'Desa manualment'),
           h('button.btn', { onclick: () => sendVisit(obra, id, refresh) }, icon('pages'), 'Exporta en ZIP'))));
       return;
     }
     clear(footer).append(
       h('div.send-box', {},
         h('div', {}, statusChip(v), h('p.muted.small', {}, v.dirty
-          ? 'Les dades d\'aquesta visita només són en aquesta tauleta. En acabar, envia-la en un ZIP al despatx.'
-          : `ZIP enviat: ${v.sentInfo?.name || ''}${v.sentInfo?.size ? ' (' + fmtSize(v.sentInfo.size) + ')' : ''}. Si fas canvis, torna-la a enviar.`)),
-        h('button.btn.primary.big-send', { onclick: () => sendVisit(obra, id, refresh) }, icon('upload'), 'Envia la visita (ZIP)')));
+          ? 'Les dades d\'aquesta visita només són en aquesta tauleta. En acabar, desa-la al OneDrive de l\'iPad (o envia-la en ZIP).'
+          : v.sentInfo?.mode === 'onedrive-manual' ? `Desada al OneDrive de l'iPad (carpeta ${v.sentInfo.name}). Si fas canvis, torna-la a desar.`
+            : `ZIP enviat: ${v.sentInfo?.name || ''}${v.sentInfo?.size ? ' (' + fmtSize(v.sentInfo.size) + ')' : ''}. Si fas canvis, torna-la a enviar.`)),
+        h('div.row', {},
+          h('button.btn.primary.big-send', { onclick: () => manualSave(obra, id, refresh) }, icon('folder'), 'Desa a OneDrive manualment'),
+          h('button.btn', { onclick: () => sendVisit(obra, id, refresh) }, icon('pages'), 'Envia en ZIP'))));
   }
   live(footer, 'changed', async (d) => { if (!d || d.visitId === id) { const nv = await store.getVisit(id); if (nv && nv.num !== v.num) { go('#/visita/' + id); return; } if (nv && (nv.dirty !== v.dirty || nv.sentAt !== v.sentAt || nv.uploadedAt !== v.uploadedAt || nv.lastError !== v.lastError || nv.odFolder !== v.odFolder || nv.num !== v.num)) { v = nv; paintFooter(); } } });
   live(footer, 'od', () => { if (isConfigured() && v.dirty) paintFooter(); });
@@ -166,6 +171,8 @@ export async function renderVisit(view, id) {
     const name = h('input.input', { value: it.name, autocapitalize: 'off' });
     const desc = h('textarea.input', { rows: 3, placeholder: 'Què es veu a la foto? (p. ex. «Armadura de la llosa, eix 3»)' }, it.desc || '');
     let action = 'close';
+    let shareList = null;
+    preparePhotoFiles(it).then((l) => { shareList = l; });
     const persist = async () => {
       const cur = await store.getItem(it.id); if (!cur) return;
       const newName = await store.uniqueName(id, 'photo', name.value.trim() || cur.name, cur.id);
@@ -179,6 +186,7 @@ export async function renderVisit(view, id) {
           h('label', {}, 'Nom del fitxer', h('div.row.nowrap', {}, name, h('span.muted', {}, '.' + (it.ext || 'jpg')))),
           h('div.row', {},
             h('button.btn', { onclick: () => { action = 'annotate'; m.close(true); } }, icon('pen'), 'Anota la foto'),
+            h('button.btn', { onclick: () => shareNow(shareList, it.name) }, icon('upload'), 'Desa a Fitxers / OneDrive'),
             h('button.btn.danger.ghost', { onclick: async () => {
               if (!(await confirmDlg('Eliminar aquesta foto de la visita?', { ok: 'Elimina', danger: true }))) return;
               action = 'deleted'; await store.deleteItem(it); m.close(true);
@@ -216,7 +224,7 @@ export async function renderVisit(view, id) {
     actionBar,
     h('section.card-sec', {}, h('h3', {}, icon('users'), 'Assistents'), secAssist),
     h('section.card-sec', {}, h('h3', {}, icon('doc'), 'Full d\'anotacions', dict), ta,
-      h('p.hint', {}, 'Es desa sol a la tauleta mentre escrius. Per dictar: botó «Dicta» (toca\'l de nou per aturar) o el micròfon 🎤 del teclat de l\'iPad.'),
+      h('p.hint', {}, 'Es desa sol a la tauleta mentre escrius. Per dictar: botó «Dicta» o directament el micròfon 🎤 del teclat de l\'iPad.'),
       h('div.lbl', {}, 'Anotacions manuscrites'), secHand),
     h('section.card-sec', {}, h('h3', {}, icon('camera'), 'Fotografies', cntPhotos), secPhotos),
     h('section.card-sec', {}, h('h3', {}, icon('plan'), 'Plànols anotats', cntPlans), secPlans),

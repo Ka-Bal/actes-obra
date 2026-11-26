@@ -63,6 +63,26 @@ export function accountInfo() {
 }
 export const authError = () => initErr;
 
+/** Errors de Microsoft (AADSTS…) explicats en paraules senzilles */
+export function friendlyAuthError(msg) {
+  const m = String(msg || '');
+  const uri = redirectUri();
+  const table = [
+    [/AADSTS50011/, `L'adreça de l'app no està registrada (o no és exactament igual). Al registre de Microsoft, a «Autenticació», hi ha d'haver aquesta adreça com a «Aplicació d'una sola pàgina (SPA)»: ${uri}`],
+    [/AADSTS9002326|AADSTS9002327/, `L'adreça s'ha registrat amb la plataforma equivocada («Web»). S'ha de registrar com a «Aplicació d'una sola pàgina (SPA)».`],
+    [/AADSTS700016/, `Microsoft no troba l'aplicació: revisa que l'«ID d'aplicació (client)» i l'«ID del directori (tenant)» estiguin ben copiats.`],
+    [/AADSTS50194/, `Falta l'«ID del directori (tenant)». Copia'l de la pàgina «Informació general» del registre.`],
+    [/AADSTS90002|AADSTS90013/, `L'«ID del directori (tenant)» no és correcte.`],
+    [/AADSTS65001|AADSTS90094|AADSTS90008|AADSTS65004/, `Falta el permís de l'administrador. Al registre, a «Permisos d'API», cal prémer «Concedeix el consentiment de l'administrador» (pas 6 de la guia).`],
+    [/AADSTS50020|AADSTS500200/, `Aquest compte no és de l'organització on s'ha registrat l'app. Inicia sessió amb el compte de Microsoft 365 d'AVENTEC.`],
+    [/AADSTS7000218/, `L'adreça s'ha registrat com a «Web». S'ha de registrar com a «Aplicació d'una sola pàgina (SPA)».`],
+    [/user_cancelled|AADSTS65004/, `S'ha cancel·lat l'inici de sessió.`],
+  ];
+  for (const [re, txt] of table) if (re.test(m)) return txt;
+  return m;
+}
+export const appRedirectUri = () => redirectUri();
+
 /** Obté un testimoni d'accés sense interacció. Llança AuthError('login') si cal tornar a iniciar sessió. */
 export async function getToken({ force = false } = {}) {
   const c = cfg();

@@ -43,6 +43,9 @@ const itemUrl = (driveId, id, rel = '') => `/drives/${driveId}/items/${id}` + (r
 /** Localitza la carpeta general (p. ex. «02 - EXPEDIENTS - Obra») → { driveId, id, name } */
 export async function resolveRoot({ refresh = false } = {}) {
   const c = cfg();
+  // Carpeta triada amb l'assistent (té prioritat)
+  const picked = await kv.get('odRootPicked', null);
+  if (picked && picked.driveId && picked.id) return picked;
   const sig = (c.rootShareUrl || '') + '|' + (c.rootPath || '');
   const cached = await kv.get('odRoot');
   if (!refresh && cached && cached.sig === sig) return cached;
@@ -186,4 +189,30 @@ export function renameMove(driveId, id, { name, parentId }) {
 export async function remove(driveId, id) {
   try { await gfetch(`/drives/${driveId}/items/${id}`, { method: 'DELETE' }); }
   catch (e) { if (e.status !== 404) throw e; }
+}
+
+// ------------------------------------------------------------- navegador de carpetes (assistent)
+export async function myDriveRoot() {
+  const r = await gfetch('/me/drive/root');
+  return { driveId: r.parentReference?.driveId || (await gfetch('/me/drive')).id, id: r.id, name: 'Els meus fitxers' };
+}
+/** Carpetes compartides amb mi (inclou les de SharePoint/Teams que m'han compartit) */
+export async function sharedFolders() {
+  try {
+    const r = await gfetch('/me/drive/sharedWithMe?$top=200');
+    return (r.value || []).filter((i) => (i.remoteItem && i.remoteItem.folder) || i.folder)
+      .map((i) => ({ driveId: i.remoteItem ? i.remoteItem.parentReference.driveId : i.parentReference.driveId, id: i.remoteItem ? i.remoteItem.id : i.id, name: i.name }));
+  } catch { return []; }
+}
+/** Subcarpetes d'una carpeta (les dreceres a carpetes compartides es resolen) */
+export async function subfolders(driveId, id) {
+  const items = await listChildren(driveId, id);
+  return items.filter((i) => i.folder || (i.remoteItem && i.remoteItem.folder))
+    .map((i) => (i.remoteItem ? { driveId: i.remoteItem.parentReference.driveId, id: i.remoteItem.id, name: i.name } : { driveId, id: i.id, name: i.name }))
+    .sort((a, b) => a.name.localeCompare(b.name, 'ca', { numeric: true }));
+}
+export async function resolveShareLink(url) {
+  const b64 = btoa(unescape(encodeURIComponent(url.trim()))).replace(/=+$/, '').replace(/\//g, '_').replace(/\+/g, '-');
+  const item = await gfetch(`/shares/u!${b64}/driveItem`);
+  return { driveId: item.parentReference.driveId, id: item.id, name: item.name };
 }

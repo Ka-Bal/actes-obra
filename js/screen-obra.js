@@ -77,7 +77,7 @@ export function statusChip(v) {
   }
   if (v.dirty && v.sentAt) return h('span.chip.pend', { title: 'Enviada el ' + fmtDate(v.sentAt) }, 'Canvis per enviar');
   if (v.dirty) return h('span.chip.pend', {}, 'Per enviar');
-  const what = v.sentInfo?.mode === 'desat' ? 'ZIP desat' : 'Enviada';
+  const what = v.sentInfo?.mode === 'desat' ? 'ZIP desat' : v.sentInfo?.mode === 'onedrive-manual' ? 'Desada a OneDrive' : 'Enviada';
   return h('span.chip.ok', {}, icon('check'), `${what} ${fmtDate(v.sentAt)} ${fmtTime(v.sentAt)}`);
 }
 
