@@ -1,20 +1,25 @@
 // Emmagatzematge local (IndexedDB). Versió portàtil: totes les dades (obres, documentació i visites) viuen a la tauleta.
 const DB_NAME = 'aventec-seguiment-obra-portatil';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 let dbPromise;
 
 function open() {
   if (!dbPromise) {
     dbPromise = new Promise((resolve, reject) => {
       const r = indexedDB.open(DB_NAME, DB_VERSION);
-      r.onupgradeneeded = () => {
+      r.onupgradeneeded = (ev) => {
         const d = r.result;
-        d.createObjectStore('kv');
-        d.createObjectStore('obres', { keyPath: 'id' });
-        d.createObjectStore('visites', { keyPath: 'id' }).createIndex('exp', 'exp');
-        d.createObjectStore('items', { keyPath: 'id' }).createIndex('visitId', 'visitId');
-        d.createObjectStore('blobs');
-        d.createObjectStore('files', { keyPath: 'key' }).createIndex('exp', 'exp');
+        const has = (n) => d.objectStoreNames.contains(n);
+        if (ev.oldVersion < 1) {
+          d.createObjectStore('kv');
+          d.createObjectStore('obres', { keyPath: 'id' });
+          d.createObjectStore('visites', { keyPath: 'id' }).createIndex('exp', 'exp');
+          d.createObjectStore('items', { keyPath: 'id' }).createIndex('visitId', 'visitId');
+          d.createObjectStore('blobs');
+          d.createObjectStore('files', { keyPath: 'key' }).createIndex('exp', 'exp');
+        }
+        // v2: estat dels fitxers ja pujats a OneDrive (per visita)
+        if (!has('remote')) d.createObjectStore('remote', { keyPath: 'visitId' });
       };
       r.onsuccess = () => resolve(r.result);
       r.onerror = () => reject(r.error);

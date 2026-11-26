@@ -20,7 +20,7 @@ async function reduceImage(blob, maxSide = 2048, q = 0.85) {
   c.width = Math.round(bmp.width * k); c.height = Math.round(bmp.height * k);
   c.getContext('2d').drawImage(bmp, 0, 0, c.width, c.height);
   if (bmp.close) bmp.close();
-  return new Promise((res, rej) => c.toBlob((b) => (b ? res(b) : rej(new Error('No s\'ha pogut reduir la foto'))), 'image/jpeg', q));
+  return new Promise((res, rej) => c.toBlob((b) => { c.width = 0; c.height = 0; b ? res(b) : rej(new Error('No s\'ha pogut reduir la foto')); }, 'image/jpeg', q));
 }
 
 /** Llista de fitxers de la visita (mateixa estructura que la carpeta de visita de la versió amb servidor). */

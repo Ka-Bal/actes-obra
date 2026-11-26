@@ -1,11 +1,13 @@
 // Versió portàtil — fitxa d'obra: visites, documentació local (carpeta de l'obra a la tauleta) i participants
 import { h, icon, live, clear, modal, toast, busy, confirmDlg, fmtDate, fmtSize, fmtTime, todayKey } from './ui.js';
-import { getBlob } from './db.js';
+import { db, getBlob } from './db.js';
 import * as store from './store.js';
 import { importDocsZip } from './zipper.js';
 import { openAnnotator } from './annotator.js';
 import { openPdf } from './pdfsrc.js';
 import { go, topbar, newObra } from './app.js';
+import { isConfigured, cfg } from './auth.js';
+import { kick as odKick } from './onedrive.js';
 
 const extIcon = (p) => { const e = store.extOf(p); return e === 'pdf' ? 'pdf' : ['jpg', 'jpeg', 'png', 'webp', 'gif', 'heic'].includes(e) ? 'image' : 'file'; };
 const baseName = (p) => p.split('/').pop();
@@ -15,7 +17,7 @@ export async function renderObra(view, id, tab) {
   const obra = await store.getObra(id);
   if (!obra) throw new Error('Aquesta obra no és en aquesta tauleta.');
   const more = h('button.icon-btn', { 'aria-label': 'Opcions de l\'obra', onclick: () => obraMenu(obra) }, icon('more'));
-  view.appendChild(topbar({ title: obra.titol, sub: obra.ref, back: '#/', actions: [more] }));
+  view.appendChild(topbar({ title: obra.titol, sub: obra.titol === obra.ref ? (obra.remote ? 'OneDrive › ' + obra.remote.name : 'Expedient') : obra.ref, back: '#/', actions: [more] }));
   const page = h('div.page');
   view.appendChild(page);
   const docs = await store.listDocs(obra.id);
@@ -23,7 +25,8 @@ export async function renderObra(view, id, tab) {
     h('div.hero', {},
       h('button.btn.primary.huge', { onclick: () => newVisit(obra) }, icon('plus'), 'Nova visita'),
       h('div.hero-info', {}, h('b', {}, `${docs.length} documents a la tauleta`), h('br'),
-        h('span.muted', {}, docs.length ? 'Els plànols es poden consultar i anotar sense connexió.' : 'Carrega els plànols i documents a la pestanya Documentació.'))),
+        h('span.muted', {}, docs.length ? 'Els plànols es poden consultar i anotar sense connexió.'
+          : isConfigured() ? `Es descarregaran sols de OneDrive (${cfg().folders.projecte}).` : 'Carrega els plànols i documents a la pestanya Documentació.'))),
     h('nav.tabs', {}, [['visites', 'Visites', 'camera'], ['docs', 'Documentació', 'folder'], ['participants', 'Participants', 'users']].map(([k, l, ic]) =>
       h('a.tab' + (tab === k ? '.on' : ''), { href: `#/obra/${encodeURIComponent(id)}/${k}` }, icon(ic), l))));
   const body = h('div.tab-body');
@@ -67,6 +70,11 @@ async function renderVisits(body, obra) {
 }
 
 export function statusChip(v) {
+  if (isConfigured()) {
+    if (v.dirty && v.lastError) return h('span.chip.err', { title: v.lastError }, 'Error en pujar');
+    if (v.dirty) return h('span.chip.pend', {}, icon('upload'), v.uploadedAt ? 'Canvis pendents de pujar' : 'Pendent de pujar');
+    return h('span.chip.ok', {}, icon('check'), `A OneDrive ${v.uploadedAt ? fmtDate(v.uploadedAt) + ' ' + fmtTime(v.uploadedAt) : ''}`);
+  }
   if (v.dirty && v.sentAt) return h('span.chip.pend', { title: 'Enviada el ' + fmtDate(v.sentAt) }, 'Canvis per enviar');
   if (v.dirty) return h('span.chip.pend', {}, 'Per enviar');
   const what = v.sentInfo?.mode === 'desat' ? 'ZIP desat' : 'Enviada';
@@ -117,14 +125,20 @@ async function renderDocs(body, obra) {
   const search = h('input.input.search', { type: 'search', placeholder: 'Cerca un document…' });
   const listEl = h('div.doclist');
   const info = h('p.muted.small');
+  const od = isConfigured();
   body.append(
-    h('div.banner', {}, icon('info'), h('div', {}, 'Carrega aquí els plànols i documents de l\'obra (PDF o imatges). Es guarden a la tauleta i es poden consultar i anotar sense connexió. ',
-      h('b', {}, 'Consell: '), 'des del despatx, comprimeix en un ZIP la carpeta de plànols de l\'expedient i envia-la a la tauleta; després importa-la amb «Importa un ZIP».')),
+    od ? h('div.banner', {}, icon('cloud'), h('div', {},
+      'Els plànols i documents de ', h('b', {}, `OneDrive › ${obra.remote?.name || obra.ref} › ${cfg().folders.projecte}`),
+      ' es descarreguen sols a la tauleta i es poden consultar i anotar sense connexió. Per afegir-ne, deixa\'ls en aquesta carpeta des del despatx.',
+      obra.odDocsAt ? h('div.muted.small', {}, 'Darrera comprovació: ' + new Date(obra.odDocsAt).toLocaleString('ca-ES')) : null),
+    h('button.btn', { onclick: () => { odKick(0, { docs: true }); toast('Comprovant OneDrive…'); } }, icon('sync'), 'Actualitza'))
+      : h('div.banner', {}, icon('info'), h('div', {}, 'Carrega aquí els plànols i documents de l\'obra (PDF o imatges). Es guarden a la tauleta i es poden consultar i anotar sense connexió.')),
     h('div.row.between', {}, search, h('div.row', {},
-      h('button.btn.primary', { onclick: () => addFiles(obra) }, icon('plus'), 'Afegeix fitxers'),
+      h('button.btn' + (od ? '' : '.primary'), { onclick: () => addFiles(obra) }, icon('plus'), od ? 'Afegeix només a la tauleta' : 'Afegeix fitxers'),
       h('button.btn', { onclick: () => importZip(obra) }, icon('download'), 'Importa un ZIP'))),
     info, listEl);
-  let docs = await store.listDocs(obra.id);
+  let docs = await db.byIndex('files', 'exp', obra.id);
+  docs = docs.map(({ path, size, mtime, source }) => ({ path, size, mtime, source })).sort((a, b) => a.path.localeCompare(b.path, 'ca', { numeric: true }));
   const paint = () => {
     clear(listEl);
     const q = search.value.trim().toLowerCase();
@@ -136,8 +150,9 @@ async function renderDocs(body, obra) {
       const d = dirName(f.path);
       if (d !== lastDir) { listEl.appendChild(h('div.dir', {}, icon('folder'), d || '(sense carpeta)')); lastDir = d; }
       listEl.appendChild(h('div.doc-row', {},
-        h('button.doc', { onclick: () => openDoc(obra, f) }, icon(extIcon(f.path)), h('span.doc-name', {}, baseName(f.path)), h('span.muted.small', {}, fmtSize(f.size))),
-        h('button.icon-btn', { 'aria-label': 'Esborra', onclick: async () => {
+        h('button.doc', { onclick: () => openDoc(obra, f) }, icon(extIcon(f.path)), h('span.doc-name', {}, baseName(f.path)), h('span.muted.small', {}, fmtSize(f.size)),
+          f.source === 'onedrive' ? h('span.od-tag', { title: 'Ve de OneDrive' }, icon('cloud')) : od ? h('span.chip', {}, 'Només a la tauleta') : null),
+        f.source === 'onedrive' ? h('span.icon-spacer') : h('button.icon-btn', { 'aria-label': 'Esborra', onclick: async () => {
           if (!(await confirmDlg(`Esborrar «${baseName(f.path)}» de la tauleta? Les anotacions que ja s'hagin fet sobre aquest plànol es conserven a les visites.`, { ok: 'Esborra', danger: true }))) return;
           await store.deleteDoc(obra.id, f.path);
         } }, icon('trash'))));
@@ -146,7 +161,11 @@ async function renderDocs(body, obra) {
   };
   search.addEventListener('input', paint);
   paint();
-  live(listEl, 'docs-changed', async (exp) => { if (exp === obra.id) { docs = await store.listDocs(obra.id); paint(); } });
+  live(listEl, 'docs-changed', async (exp) => {
+    if (exp !== obra.id) return;
+    docs = (await db.byIndex('files', 'exp', obra.id)).map(({ path, size, mtime, source }) => ({ path, size, mtime, source })).sort((a, b) => a.path.localeCompare(b.path, 'ca', { numeric: true }));
+    paint();
+  });
 }
 
 async function addFiles(obra) {

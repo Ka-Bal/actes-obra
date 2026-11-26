@@ -5,8 +5,11 @@ import { db, kv, requestPersistence } from './db.js';
 import * as store from './store.js';
 import { renderObra } from './screen-obra.js';
 import { renderVisit } from './screen-visit.js';
+import './ipad.js';
+import { initAuth, isConfigured, accountInfo, login, logout, cfg, authError } from './auth.js';
+import { startOneDrive, odState, kick as odKick, cachedRemoteObres, refreshRemoteObres, addRemoteObra } from './onedrive.js';
 
-export const APP_VERSION = '2.0.0-portàtil';
+export const APP_VERSION = '2.1.0-portàtil';
 const root = document.getElementById('app');
 
 // ------------------------------------------------------------- navegació
@@ -37,7 +40,7 @@ export function topbar({ title, sub, back, actions = [] }) {
     back ? h('button.icon-btn.back', { onclick: () => go(back), 'aria-label': 'Enrere' }, icon('back'))
       : h('div.brand', {}, h('img', { src: 'icons/logo.svg', alt: 'AVENTEC' })),
     h('div.tb-title', {}, h('div.t1', {}, title), sub ? h('div.t2', {}, sub) : null),
-    h('div.tb-actions', {}, ...actions, sendBadge(),
+    h('div.tb-actions', {}, ...actions, isConfigured() ? odBadge() : sendBadge(),
       h('button.icon-btn', { onclick: openSettings, 'aria-label': 'Configuració' }, icon('settings'))));
 }
 
@@ -52,6 +55,69 @@ function sendBadge() {
   paint();
   live(el, 'changed', paint);
   return el;
+}
+
+/** Indicador de OneDrive */
+function odBadge() {
+  const el = h('button.sync-badge', { onclick: openOneDrive, 'aria-label': 'Estat de OneDrive' });
+  const paint = (s = odState()) => {
+    const n = s.pending || 0;
+    let cls = 'ok', ic = 'check', txt = 'OneDrive al dia';
+    if (s.phase === 'login') { cls = 'err'; ic = 'key'; txt = 'Inicia sessió a OneDrive'; }
+    else if (s.phase === 'offline') { cls = 'off'; ic = 'cloudOff'; txt = n ? `Sense connexió · ${n} pendent${n > 1 ? 's' : ''}` : 'Sense connexió'; }
+    else if (s.phase === 'syncing') { cls = 'busy'; ic = 'sync'; txt = s.current ? `${s.current.label.startsWith('Desc') ? 'Descarregant' : 'Pujant'} ${s.current.done}/${s.current.total}` : 'Sincronitzant…'; }
+    else if (s.phase === 'error') { cls = 'err'; ic = 'info'; txt = 'Error de OneDrive'; }
+    else if (n) { cls = 'pend'; ic = 'upload'; txt = `${n} pendent${n > 1 ? 's' : ''} de pujar`; }
+    else if (s.phase === 'off') { cls = 'busy'; ic = 'cloud'; txt = 'OneDrive'; }
+    el.className = 'sync-badge ' + cls;
+    clear(el).append(icon(ic), h('span', {}, txt));
+  };
+  paint();
+  live(el, 'od', paint);
+  live(el, 'changed', () => paint());
+  return el;
+}
+
+export async function openOneDrive() {
+  const s = odState();
+  const acc = accountInfo();
+  const c = cfg();
+  const st = { off: 'No connectat', login: 'Cal iniciar sessió', offline: 'Sense connexió (es pujarà en tornar la xarxa)', syncing: 'Sincronitzant…', ok: 'Al dia', error: 'Error', idle: '—' }[s.phase] || s.phase;
+  const rows = [
+    ['Compte', acc ? `${acc.name || ''} (${acc.username})` : '—'],
+    ['Carpeta general', c.rootShareUrl ? 'Enllaç compartit' : (c.rootPath || '—')],
+    ['Estat', st],
+    ['Visites pendents de pujar', String(s.pending || 0)],
+    ['Darrera sincronització', s.lastOk ? new Date(s.lastOk).toLocaleString('ca-ES') : '—'],
+  ];
+  if (s.error) rows.push(['Darrer error', s.error]);
+  if (authError()) rows.push(['Inici de sessió', authError()]);
+  const clientId = h('input.input', { value: (await kv.get('odConfig', {}))?.clientId || '', placeholder: c.clientId || 'ID d\'aplicació (client)', autocapitalize: 'off' });
+  const rootPath = h('input.input', { value: (await kv.get('odConfig', {}))?.rootPath || '', placeholder: c.rootPath || '02 - EXPEDIENTS - Obra' });
+  const shareUrl = h('input.input', { value: (await kv.get('odConfig', {}))?.rootShareUrl || '', placeholder: 'https://…sharepoint.com/…', type: 'url', autocapitalize: 'off' });
+  const adv = h('details.adv', {}, h('summary', {}, 'Configuració avançada (administrador)'),
+    h('div.form', {},
+      h('p.hint', {}, 'Normalment es configura a config.js en publicar l\'app. Aquí es pot canviar només per a aquesta tauleta.'),
+      h('label', {}, 'ID d\'aplicació de Microsoft Entra', clientId),
+      h('label', {}, 'Carpeta general al meu OneDrive', rootPath),
+      h('label', {}, 'O enllaç de la carpeta general (si és compartida o de SharePoint)', shareUrl),
+      h('button.btn', { onclick: async () => {
+        await kv.set('odConfig', { clientId: clientId.value.trim(), rootPath: rootPath.value.trim(), rootShareUrl: shareUrl.value.trim() });
+        await kv.set('odRoot', null); toast('Configuració desada. Es tornarà a carregar l\'app.'); setTimeout(() => location.reload(), 600);
+      } }, icon('save'), 'Desa i torna a carregar')));
+  modal({
+    title: 'OneDrive',
+    body: h('div.form', {},
+      h('table.kv', {}, rows.map(([k, v]) => h('tr', {}, h('th', {}, k), h('td', {}, v)))),
+      h('p.hint', {}, `Les fotos de cada visita es pugen a «${c.folders?.fotos || '002_Fotos'}» i la resta (full de visita, plànols anotats, àudios) a «${c.folders?.documents || '003_Documents_obra'}», dins de la carpeta de l'expedient. Els plànols de «${c.folders?.projecte || '001_Projecte'}» es descarreguen a la tauleta. Tot es desa primer a la tauleta i es puja quan hi ha connexió amb l'app oberta.`),
+      !isConfigured() ? h('p.error', {}, 'Falta l\'ID d\'aplicació de Microsoft (config.js o configuració avançada).') : null,
+      adv),
+    actions: [
+      ...(acc ? [{ label: 'Tanca la sessió', onClick: async () => { if (await confirmDlg('Tancar la sessió de Microsoft en aquesta app? Les dades de la tauleta es conserven.', { ok: 'Tanca la sessió' })) { await logout(); location.reload(); } } }] : []),
+      ...(isConfigured() && (!acc || s.phase === 'login') ? [{ label: 'Inicia sessió amb Microsoft', primary: true, icon: 'key', onClick: async () => { try { await login(); } catch (e) { toast(e.message, 'error'); } } }] : []),
+      ...(isConfigured() && acc && s.phase !== 'login' ? [{ label: 'Sincronitza ara', primary: true, icon: 'sync', onClick: () => { odKick(0, { docs: true }); toast('Sincronitzant amb OneDrive…'); } }] : []),
+    ],
+  });
 }
 
 async function openPending() {
@@ -80,6 +146,14 @@ async function renderHome(view) {
       h('button.icon-btn', { onclick: async (e) => { await kv.set('hideInstall', true); e.target.closest('.banner').remove(); } }, icon('x'))));
   }
 
+  if (isConfigured() && !accountInfo()) {
+    page.appendChild(h('div.banner', {}, icon('key'), h('div', {}, h('b', {}, 'Connecta l\'app amb OneDrive. '),
+      'Inicia sessió amb el compte de Microsoft d\'AVENTEC per veure les obres de la carpeta «', cfg().rootPath, '» i pujar-hi les fotos i documents de les visites.'),
+      h('button.btn.primary', { onclick: async () => { try { await login(); } catch (e) { toast(e.message, 'error'); } } }, 'Inicia sessió')));
+  } else if (!isConfigured()) {
+    page.appendChild(h('div.banner', {}, icon('info'), h('div', {}, 'OneDrive encara no està configurat (falta l\'ID d\'aplicació a config.js). L\'app funciona igualment: les visites s\'envien en ZIP.')));
+  }
+
   const obres = await store.listObres();
   const visits = await Promise.all(obres.map((o) => store.listVisits(o.id)));
   const docs = await Promise.all(obres.map((o) => db.keysByIndex('files', 'exp', o.id)));
@@ -105,8 +179,30 @@ async function renderHome(view) {
     }
   };
   search.addEventListener('input', paint);
-  page.append(h('div.row.between', {}, obres.length > 5 ? search : h('div'), h('button.btn.primary', { onclick: newObra }, icon('plus'), 'Nova obra')), grid);
+  page.append(h('div.row.between', {}, obres.length > 5 ? search : h('div'), h('button.btn' + (isConfigured() ? '' : '.primary'), { onclick: newObra }, icon('plus'), 'Nova obra')), grid);
   paint();
+
+  // Obres de la carpeta de OneDrive que encara no són a la tauleta
+  if (isConfigured() && accountInfo()) {
+    const box = h('div');
+    page.appendChild(box);
+    const paintRemote = (list) => {
+      const have = new Set(obres.map((o) => o.ref));
+      const others = (list || []).filter((r) => !have.has(r.ref));
+      clear(box).append(h('h3.sec', {}, 'Obres a OneDrive (', cfg().rootShareUrl ? 'carpeta compartida' : cfg().rootPath, ')'));
+      if (!others.length) { box.appendChild(h('p.muted', {}, list && list.length ? 'Totes les obres de OneDrive ja són a la tauleta.' : 'Carregant la llista d\'obres de OneDrive…')); return; }
+      box.appendChild(h('div.list', {}, others.map((r) => h('div.list-item.static', {}, icon('folder'),
+        h('div.li-main', {}, h('div.li-title', {}, r.ref), h('div.li-sub', {}, r.name)),
+        h('button.btn.primary', { onclick: async (e) => {
+          e.target.disabled = true;
+          try { const o = await addRemoteObra(r); go('#/obra/' + encodeURIComponent(o.id) + '/docs'); }
+          catch (err) { toast(err.message, 'error'); e.target.disabled = false; }
+        } }, icon('download'), 'Afegeix a la tauleta')))));
+    };
+    paintRemote((await cachedRemoteObres()).list);
+    live(box, 'od-obres', paintRemote);
+    if (navigator.onLine) refreshRemoteObres().catch(() => {});
+  }
 }
 
 export async function newObra(existing = null) {
@@ -170,8 +266,11 @@ async function openSettings() {
       h('label', {}, 'Idioma del dictat', lang),
       h('table.kv', {}, rows.map(([k, v]) => h('tr', {}, h('th', {}, k), h('td', {}, v)))),
       h('div.row', {},
-        h('button.btn', { onclick: async () => { const ok = await requestPersistence(); toast(ok ? 'Emmagatzematge protegit' : 'El navegador no ho ha confirmat. Instal·la l\'app a la pantalla d\'inici.'); } }, icon('save'), 'Protegir dades')),
-      h('p.hint', {}, 'Versió portàtil: totes les dades són només en aquesta tauleta. Envia cada visita (ZIP) per correu o WhatsApp en acabar-la; si la tauleta es perd o s\'esborra l\'app, el que no s\'hagi enviat es perd.')),
+        h('button.btn', { onclick: async () => { const ok = await requestPersistence(); toast(ok ? 'Emmagatzematge protegit' : 'El navegador no ho ha confirmat. Instal·la l\'app a la pantalla d\'inici.'); } }, icon('save'), 'Protegir dades'),
+        h('button.btn', { onclick: () => openOneDrive() }, icon('cloud'), 'OneDrive…')),
+      h('p.hint', {}, isConfigured()
+        ? 'Les dades es desen primer a la tauleta i es pugen soles a OneDrive quan hi ha connexió. Abans d\'esborrar l\'app, comprova que no hi hagi visites pendents de pujar.'
+        : 'Sense OneDrive, les dades són només en aquesta tauleta: envia cada visita (ZIP) en acabar-la.')),
     actions: [{ label: 'Desa', primary: true, onClick: async () => { await kv.set('userName', user.value.trim()); await kv.set('dictLang', lang.value); toast('Configuració desada'); } }],
   });
 }
@@ -191,6 +290,7 @@ window.__aventecBack = () => {
 
 // ------------------------------------------------------------- arrencada
 async function boot() {
+  await initAuth();
   if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) {
     const hadController = !!navigator.serviceWorker.controller;
     navigator.serviceWorker.register('sw.js').catch((e) => console.warn('Service worker no registrat', e));
@@ -205,6 +305,7 @@ async function boot() {
     }, 600);
   }
   on('data', () => { if (!location.hash || location.hash === '#/') render(); });
+  startOneDrive();
   render();
 }
 

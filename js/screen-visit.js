@@ -5,6 +5,9 @@ import { kv, getBlob } from './db.js';
 import * as store from './store.js';
 import { buildVisitZip, estimateSize, zipName, canShareFile, shareFiles, downloadBlob } from './zipper.js';
 import { openAnnotator } from './annotator.js';
+import { dictationButton } from './dictation.js';
+import { isConfigured, cfg } from './auth.js';
+import { kick as odKick, odState, visitFolderName } from './onedrive.js';
 import { openPdf } from './pdfsrc.js';
 import { drawShapes } from './draw.js';
 import { photoFile, sheetBase } from './exporter.js';
@@ -23,8 +26,8 @@ export async function renderVisit(view, id) {
   if (!obra) throw new Error('Obra no trobada');
 
   const more = h('button.icon-btn', { 'aria-label': 'Més opcions', onclick: () => visitMenu(obra, id) }, icon('more'));
-  const send = h('button.btn.small.send-top', { onclick: () => sendVisit(obra, id, refresh) }, icon('upload'), h('span', {}, 'Envia'));
-  view.appendChild(topbar({ title: `Visita ${v.num} · ${fmtDate(v.date)}`, sub: `${obra.ref} · ${obra.titol}`, back: '#/obra/' + encodeURIComponent(obra.id), actions: [send, more] }));
+  const send = isConfigured() ? null : h('button.btn.small.send-top', { onclick: () => sendVisit(obra, id, refresh) }, icon('upload'), h('span', {}, 'Envia'));
+  view.appendChild(topbar({ title: `Visita ${v.num} · ${fmtDate(v.date)}`, sub: obra.titol === obra.ref ? obra.ref : `${obra.ref} · ${obra.titol}`, back: '#/obra/' + encodeURIComponent(obra.id), actions: [send, more].filter(Boolean) }));
 
   // Entrades de fitxer (càmera i galeria)
   const cam = h('input.hidden', { type: 'file', accept: 'image/*', capture: 'environment' });
@@ -66,7 +69,7 @@ export async function renderVisit(view, id) {
   ta.addEventListener('input', () => { clearTimeout(saveT); saveT = setTimeout(flush, 700); });
   ta.addEventListener('blur', () => { if (saveT) flush(); });
   window.addEventListener('pagehide', () => { if (saveT) flush(); }, { once: true });
-  const dict = dictationButton(ta);
+  const dict = dictationButton(ta, () => ta.dispatchEvent(new Event('input')));
 
   async function refresh() {
     revokeAll();
@@ -126,6 +129,19 @@ export async function renderVisit(view, id) {
   }
 
   function paintFooter() {
+    if (isConfigured()) {
+      const F = cfg().folders, folder = v.odFolder || visitFolderName(v);
+      const s = odState();
+      const why = s.phase === 'login' ? 'Cal iniciar sessió a OneDrive (indicador de dalt).' : s.phase === 'offline' ? 'Sense connexió: es pujarà sola quan tornis a tenir xarxa.' : 'Es puja sola a OneDrive en uns segons.';
+      clear(footer).append(h('div.send-box', {},
+        h('div', {}, statusChip(v), h('p.muted.small', {},
+          v.dirty ? why + ' ' : 'Tota la visita és a OneDrive. ',
+          'Fotos → ', h('b', {}, `${obra.remote?.name || obra.ref}/${F.fotos}/${folder}`), ' · Full, plànols anotats i àudios → ', h('b', {}, `${F.documents}/${folder}`))),
+        h('div.row', {},
+          v.dirty ? h('button.btn.primary', { onclick: () => { odKick(0); toast('Pujant a OneDrive…'); } }, icon('upload'), 'Puja ara') : null,
+          h('button.btn', { onclick: () => sendVisit(obra, id, refresh) }, icon('pages'), 'Exporta en ZIP'))));
+      return;
+    }
     clear(footer).append(
       h('div.send-box', {},
         h('div', {}, statusChip(v), h('p.muted.small', {}, v.dirty
@@ -133,7 +149,8 @@ export async function renderVisit(view, id) {
           : `ZIP enviat: ${v.sentInfo?.name || ''}${v.sentInfo?.size ? ' (' + fmtSize(v.sentInfo.size) + ')' : ''}. Si fas canvis, torna-la a enviar.`)),
         h('button.btn.primary.big-send', { onclick: () => sendVisit(obra, id, refresh) }, icon('upload'), 'Envia la visita (ZIP)')));
   }
-  live(footer, 'changed', async (d) => { if (!d || d.visitId === id) { const nv = await store.getVisit(id); if (nv && (nv.dirty !== v.dirty || nv.sentAt !== v.sentAt)) { v = nv; paintFooter(); } } });
+  live(footer, 'changed', async (d) => { if (!d || d.visitId === id) { const nv = await store.getVisit(id); if (nv && nv.num !== v.num) { go('#/visita/' + id); return; } if (nv && (nv.dirty !== v.dirty || nv.sentAt !== v.sentAt || nv.uploadedAt !== v.uploadedAt || nv.lastError !== v.lastError || nv.odFolder !== v.odFolder || nv.num !== v.num)) { v = nv; paintFooter(); } } });
+  live(footer, 'od', () => { if (isConfigured() && v.dirty) paintFooter(); });
 
   // ---- fitxa de foto
   async function photoModal(it, { isNew = false } = {}) {
@@ -199,7 +216,7 @@ export async function renderVisit(view, id) {
     actionBar,
     h('section.card-sec', {}, h('h3', {}, icon('users'), 'Assistents'), secAssist),
     h('section.card-sec', {}, h('h3', {}, icon('doc'), 'Full d\'anotacions', dict), ta,
-      h('p.hint', {}, 'Es desa sol a la tauleta mentre escrius. Per dictar, toca el micròfon del teclat.'),
+      h('p.hint', {}, 'Es desa sol a la tauleta mentre escrius. Per dictar: botó «Dicta» (toca\'l de nou per aturar) o el micròfon 🎤 del teclat de l\'iPad.'),
       h('div.lbl', {}, 'Anotacions manuscrites'), secHand),
     h('section.card-sec', {}, h('h3', {}, icon('camera'), 'Fotografies', cntPhotos), secPhotos),
     h('section.card-sec', {}, h('h3', {}, icon('plan'), 'Plànols anotats', cntPlans), secPlans),
@@ -207,38 +224,6 @@ export async function renderVisit(view, id) {
     footer);
   view.appendChild(page);
   await refresh();
-}
-
-// ------------------------------------------------------------- dictat (Web Speech API, si el navegador ho permet)
-function dictationButton(ta) {
-  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-  if (!SR) return null;
-  let rec = null;
-  const interim = h('span.interim');
-  const btn = h('button.btn.small.dict', { onclick: async () => {
-    if (rec) { rec.stop(); return; }
-    rec = new SR();
-    rec.lang = await kv.get('dictLang', 'ca-ES'); rec.continuous = true; rec.interimResults = true;
-    rec.onresult = (e) => {
-      let tmp = '';
-      for (let i = e.resultIndex; i < e.results.length; i++) {
-        const r = e.results[i];
-        if (r.isFinal) {
-          let t = r[0].transcript.trim(); if (!t) continue;
-          const sep = !ta.value || /\s$/.test(ta.value) ? '' : ' ';
-          if (!ta.value || /[.!?\n]\s*$/.test(ta.value)) t = t.charAt(0).toUpperCase() + t.slice(1);
-          ta.value += sep + t;
-          ta.dispatchEvent(new Event('input'));
-        } else tmp += r[0].transcript;
-      }
-      interim.textContent = tmp;
-    };
-    rec.onerror = (e) => { if (e.error !== 'aborted' && e.error !== 'no-speech') toast('El dictat no està disponible ara (' + e.error + '). Fes servir el micròfon del teclat.', 'error'); };
-    rec.onend = () => { rec = null; interim.textContent = ''; btn.classList.remove('rec'); btn.lastChild.textContent = 'Dicta'; };
-    try { rec.start(); btn.classList.add('rec'); btn.lastChild.textContent = 'Atura el dictat'; }
-    catch (e) { rec = null; toast('No s\'ha pogut iniciar el dictat: ' + e.message, 'error'); }
-  } }, icon('mic'), h('span', {}, 'Dicta'));
-  return h('span.dict-wrap', {}, btn, interim);
 }
 
 // ------------------------------------------------------------- full manuscrit
@@ -436,7 +421,7 @@ async function sendVisit(obra, id, refresh) {
     clear(status).append(...[
       h('div.zip-ready', {}, icon('check'), h('div', {}, h('b', {}, file.name), h('br'), h('span.muted', {}, fmtSize(zipBlob.size)))),
       big ? h('p.hint', {}, 'Atenció: el ZIP fa més de 20 MB i molts servidors de correu no l\'acceptaran. Envia\'l per WhatsApp, o activa «Redueix les fotos».') : null].filter(Boolean));
-    const done = async (mode) => { await store.markSent(id, { name: file.name, size: zipBlob.size, mode }); refresh(); };
+    const done = async (mode) => { await store.markSent(id, { name: file.name, size: zipBlob.size, mode }, { clearDirty: !isConfigured() }); refresh(); };
     if (canShareFile(file)) {
       actions.append(h('button.btn.primary.big', { onclick: async () => {
         try { const r = await shareFiles([file], { title: file.name, text: `Visita ${v.num} · ${obra.ref} · ${obra.titol}` }); if (r === 'shared') { await done('compartit'); toast('Visita enviada'); m.close(); } }

@@ -23,11 +23,11 @@ export async function createObra({ ref, titol, participants = [] }) {
   if (!/^E_\d{2}_\d{3}$/.test(ref)) throw new Error('El codi ha de tenir el format E_AA_NNN');
   if (await getObra(ref)) throw new Error('Ja hi ha una obra amb aquest codi en aquesta tauleta');
   requestPersistence();
-  const o = { id: ref, ref, titol: String(titol || '').trim() || ref, participants, creada: new Date().toISOString() };
+  const o = { id: ref, ref, titol: String(titol || '').trim() || ref, participants, creada: new Date().toISOString(), metaDirty: true };
   return saveObra(o);
 }
 
-export async function updateObraFields(obra, fields) { Object.assign(obra, fields); await saveObra(obra); }
+export async function updateObraFields(obra, fields) { Object.assign(obra, fields, { metaDirty: true }); await saveObra(obra); emit('obra-changed', obra.id); }
 
 export async function deleteObra(obra) {
   for (const v of await listVisits(obra.id)) await deleteVisitLocal(v);
@@ -92,9 +92,11 @@ export async function mutateVisit(id, fn) {
   return saveVisit(v);
 }
 
-export async function markSent(id, info) {
+/** Registra l'exportació en ZIP. Sense OneDrive, el ZIP és l'enviament i la visita deixa d'estar pendent. */
+export async function markSent(id, info, { clearDirty = true } = {}) {
   const v = await getVisit(id); if (!v) return;
-  v.dirty = false; v.sentAt = Date.now(); v.sentInfo = info;
+  if (clearDirty) v.dirty = false;
+  v.sentAt = Date.now(); v.sentInfo = info;
   await saveVisit(v, { touch: false });
 }
 
@@ -119,6 +121,7 @@ export async function deleteVisitLocal(v) {
   const items = await listItems(v.id);
   for (const it of items) { await deleteItemBlobs(it); await db.del('items', it.id); }
   await db.del('visites', v.id);
+  try { await db.del('remote', v.id); } catch { /* */ }
   emit('changed');
 }
 
@@ -165,7 +168,10 @@ export async function makeThumb(source, max = 360) {
   const c = document.createElement('canvas');
   c.width = Math.max(1, Math.round(bmp.width * k)); c.height = Math.max(1, Math.round(bmp.height * k));
   c.getContext('2d').drawImage(bmp, 0, 0, c.width, c.height);
-  return canvasToBlob(c, 'image/jpeg', 0.8);
+  if (source instanceof Blob && bmp.close) bmp.close();
+  const out = await canvasToBlob(c, 'image/jpeg', 0.8);
+  c.width = 0; c.height = 0;
+  return out;
 }
 
 export async function addPhoto(visit, file) {
@@ -187,11 +193,13 @@ export async function saveFotoAnnotation(it, shapes) {
   if (it.annotId) await delBlob(it.annotId);
   if (it.annotThumbId) await delBlob(it.annotThumbId);
   if (shapes && shapes.length) {
-    const canvas = composeImage(bmp, shapes);
+    const canvas = composeImage(bmp, shapes, 4032);
     it.annotId = await putBlob(await canvasToBlob(canvas, 'image/jpeg', 0.9));
     it.annotThumbId = await putBlob(await makeThumb(canvas));
+    canvas.width = 0; canvas.height = 0;
     it.shapes = { 0: shapes };
   } else { it.annotId = null; it.annotThumbId = null; it.shapes = null; }
+  if (bmp.close) bmp.close();
   return saveItem(it);
 }
 

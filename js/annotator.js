@@ -6,6 +6,9 @@
 import { h, icon, promptDlg, confirmDlg, toast } from './ui.js';
 import { COLORS, WIDTHS, TEXT_SIZES, drawShapes, drawShape, drawPenTail, hitTest, roundPts, invertMatrix } from './draw.js';
 import { kv } from './db.js';
+import { resetPageZoom } from './ipad.js';
+
+const freeCanvas = (c) => { if (c) { c.width = 0; c.height = 0; } }; // allibera memòria (límit de canvas de Safari)
 
 const TOOLS = [
   ['hand', 'hand', 'Navegar'], ['pen', 'pen', 'Llapis'], ['mk', 'marker', 'Retolador'], ['ar', 'arrow', 'Fletxa'],
@@ -41,6 +44,7 @@ class Annotator {
   // ------------------------------------------------------------ UI
   build() {
     const o = this.o;
+    resetPageZoom();
     this.base = h('canvas.ann-base'); this.ink = h('canvas.ann-ink');
     this.stage = h('div.ann-stage', {}, this.base, this.ink);
     this.pageLabel = h('span.ann-page');
@@ -121,6 +125,7 @@ class Annotator {
     this.pageIdx = i; this.syncToolbar();
     for (const t of [this.renderTask, this.previewTask]) if (t) { try { t.cancel(); } catch { /* */ } }
     this.renderTask = null; this.previewTask = null;
+    freeCanvas(this.preview && this.preview.canvas); freeCanvas(this.hires && this.hires.canvas);
     this.preview = null; this.hires = null; this.page = null;
     if (this.kind === 'pdf') {
       const page = await this.o.pdf.getPage(i + 1);
@@ -221,10 +226,11 @@ class Annotator {
     this.renderTask = task;
     try {
       await task.promise;
-      if (this.renderTask !== task) return;
+      if (this.renderTask !== task) { freeCanvas(c); return; }
+      if (this.hires && this.hires.canvas !== c) freeCanvas(this.hires.canvas);
       this.hires = { canvas: c, zoom, tx, ty };
       this.requestDraw();
-    } catch (e) { if (e && e.name !== 'RenderingCancelledException') console.error(e); }
+    } catch (e) { freeCanvas(c); if (e && e.name !== 'RenderingCancelledException') console.error(e); }
     if (this.renderTask === task) this.renderTask = null;
   }
 
@@ -426,6 +432,8 @@ class Annotator {
     }
     clearTimeout(this.hiresTimer);
     for (const t of [this.renderTask, this.previewTask]) if (t) { try { t.cancel(); } catch { /* */ } }
+    freeCanvas(this.preview && this.preview.canvas); freeCanvas(this.hires && this.hires.canvas);
+    freeCanvas(this.base); freeCanvas(this.ink);
     this.ro.disconnect();
     document.removeEventListener('keydown', this.onKey);
     document.body.classList.remove('noscroll');
