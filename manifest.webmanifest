@@ -1,7 +1,7 @@
 {
   "name": "AVENTEC · Seguiment d'obra (portàtil)",
   "short_name": "Obra portàtil",
-  "description": "Visites d'obra sense servidor: plànols, fotos, anotacions, notes i àudio a la tauleta; la visita s'envia en un ZIP per correu o WhatsApp.",
+  "description": "Visites d'obra a l'iPad: plànols de OneDrive, fotos, anotacions, notes i àudio; tot es puja sol a OneDrive.",
   "lang": "ca",
   "start_url": "./",
   "scope": "./",

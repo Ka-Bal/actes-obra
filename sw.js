@@ -1,11 +1,12 @@
 // Service worker generat automàticament (tools/build-sw.js). No l'editis a mà.
 // Guarda l'aplicació a la tauleta perquè s'obri i funcioni sense connexió.
-const VERSION = 'ce72daf42f02';
+const VERSION = 'b3a54fe79e5a';
 const CACHE = 'aventec-app-' + VERSION;
 const RUNTIME = 'aventec-runtime';
 const FILES = [
  "./",
  "./app.css",
+ "./config.js",
  "./demo/files/E_26_999_PR_Fonamentacio_v1.pdf",
  "./demo/files/E_26_999_PR_Planta general_v1.pdf",
  "./demo/files/Pla de seguretat i salut.pdf",
@@ -20,9 +21,14 @@ const FILES = [
  "./index.html",
  "./js/annotator.js",
  "./js/app.js",
+ "./js/auth.js",
  "./js/db.js",
+ "./js/dictation.js",
  "./js/draw.js",
  "./js/exporter.js",
+ "./js/graph.js",
+ "./js/ipad.js",
+ "./js/onedrive.js",
  "./js/pdfsrc.js",
  "./js/screen-obra.js",
  "./js/screen-visit.js",
@@ -31,6 +37,7 @@ const FILES = [
  "./js/zipper.js",
  "./manifest.webmanifest",
  "./vendor/fflate.mjs",
+ "./vendor/msal-browser.min.js",
  "./vendor/pdf-lib.esm.min.js",
  "./vendor/pdf.min.mjs",
  "./vendor/pdf.worker.min.mjs",

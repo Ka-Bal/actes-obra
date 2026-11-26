@@ -247,3 +247,21 @@ textarea.input { resize: vertical; }
 .zip-ready { display: flex; gap: 12px; align-items: center; background: var(--ok-bg); color: #0b5e3d; border-radius: 12px; padding: 12px 14px; }
 .zip-ready .ico { width: 28px; height: 28px; }
 .zip-actions { display: flex; flex-direction: column; gap: 10px; }
+
+/* ---------- iPad: sense zoom de pàgina ni seleccions accidentals */
+html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; touch-action: manipulation; }
+input, textarea, select { font-size: 16px; } /* < 16px faria que Safari ampliés la pàgina en enfocar */
+.ann, .ann * { touch-action: none; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+.ann { height: 100%; overscroll-behavior: none; }
+.ann-top, .ann-tools { flex: none; position: relative; z-index: 2; }
+button { -webkit-user-select: none; user-select: none; }
+
+/* ---------- OneDrive */
+.od-tag { color: var(--blau); display: inline-flex; }
+.od-tag .ico { width: 18px; height: 18px; }
+.icon-spacer { width: var(--tap); flex: none; }
+details.adv { border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; }
+details.adv summary { cursor: pointer; font-weight: 600; color: var(--titol); }
+details.adv .form { margin-top: 10px; }
+.banner > .btn { flex: none; align-self: center; }
+.interim { max-width: 160px; }
